@@ -1,0 +1,139 @@
+#:import dp kivy.metrics.dp
+
+<HistoryButton>:
+    size_hint_y: None
+    height: dp(48)
+    background_normal: ''
+    background_color: (0.85, 0.2, 0.25, 1) if self.selected else (0.2, 0.2, 0.2, 1)
+    color: 1, 1, 1, 1
+    font_size: '16sp'
+    halign: 'left'
+    text_size: self.width - dp(8), None
+    padding: dp(8), 0
+
+<MainScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: dp(16)
+        spacing: dp(12)
+
+        BoxLayout:
+            orientation: 'vertical'
+            spacing: dp(4)
+            size_hint_y: None
+            height: self.minimum_height
+
+            Label:
+                text: 'Генератор координат A4'
+                font_size: '22sp'
+                bold: True
+                size_hint_y: None
+                height: self.texture_size[1]
+
+            Label:
+                text: 'Поточний № {}'.format('{:03d}'.format(root.controller.latest_point['id']) if root.controller and root.controller.latest_point else '—')
+                font_size: '16sp'
+                size_hint_y: None
+                height: self.texture_size[1] + dp(6)
+
+        PointBoard:
+            size_hint_y: 0.55
+            image_source: 'Image.jpg'
+            display_all: False
+            controller: root.controller
+
+        GridLayout:
+            cols: 2
+            spacing: dp(12)
+            size_hint_y: None
+            height: dp(72)
+
+            Label:
+                text: 'X: {} мм'.format('{:.1f}'.format(root.controller.latest_point['x']) if root.controller and root.controller.latest_point else '—')
+                font_size: '18sp'
+
+            Label:
+                text: 'Y: {} мм'.format('{:.1f}'.format(root.controller.latest_point['y']) if root.controller and root.controller.latest_point else '—')
+                font_size: '18sp'
+
+        BoxLayout:
+            size_hint_y: None
+            height: dp(48)
+            Button:
+                text: 'Згенерувати координати'
+                on_release: root.controller.generate_point() if root.controller else None
+
+        Label:
+            text: 'Натисніть "Історія", щоб переглянути всі точки.'
+            font_size: '14sp'
+            color: 0.4, 0.4, 0.4, 1
+            size_hint_y: None
+            height: self.texture_size[1] + dp(6)
+
+<HistoryScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: dp(16)
+        spacing: dp(12)
+
+        Label:
+            text: 'Усі згенеровані точки'
+            font_size: '20sp'
+            bold: True
+            size_hint_y: None
+            height: self.texture_size[1] + dp(4)
+
+        PointBoard:
+            size_hint_y: 0.8
+            image_source: 'Image.jpg'
+            display_all: True
+            controller: root.controller
+            show_until_selection: True
+
+        Label:
+            text: 'Історія координат'
+            font_size: '16sp'
+            size_hint_y: None
+            height: self.texture_size[1] + dp(4)
+
+        RecycleView:
+            id: history_rv
+            size_hint_y: 0.4
+            viewclass: 'HistoryButton'
+            bar_width: dp(4)
+            scroll_type: ['bars', 'content']
+            RecycleBoxLayout:
+                default_size: None, dp(48)
+                default_size_hint: 1, None
+                size_hint_y: None
+                height: self.minimum_height
+                orientation: 'vertical'
+
+RootWidget:
+    orientation: 'vertical'
+    spacing: dp(6)
+
+    ScreenManager:
+        id: screen_manager
+
+        MainScreen:
+            name: 'main'
+            controller: app.root
+
+        HistoryScreen:
+            name: 'history'
+            controller: app.root
+
+    BoxLayout:
+        size_hint_y: None
+        height: dp(56)
+        padding: dp(8)
+        spacing: dp(8)
+
+        Button:
+            text: 'Головна'
+            on_release: root.switch_to('main')
+
+        Button:
+            text: 'Історія'
+            on_release: root.switch_to('history')
