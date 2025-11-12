@@ -23,13 +23,22 @@ from kivy.uix.widget import Widget
 from kivy.graphics import Color, Ellipse, Rectangle
 from kivy.utils import platform
 
+def rgba_color(r: float, g: float, b: float, a: float = 1.0) -> tuple[float, float, float, float]:
+    """Convert 0-255 rgba values into the 0-1 range Kivy expects."""
+    return (r / 255.0, g / 255.0, b / 255.0, a)
 
 A4_WIDTH_MM = 210.0
 A4_HEIGHT_MM = 297.0
-POINT_DIAMETER_MM = 5.56
+POINT_DIAMETER_MM = 8  # 5.56
 POINT_RADIUS_MM = POINT_DIAMETER_MM / 2.0
-POINT_LABEL_FONT_SIZE = dp(12)
+POINT_LABEL_FONT_SIZE = dp(11)
+POINT_LABEL_OUTLINE_WIDTH = dp(0.8)
+SELECTED_POINT_COLOR = rgba_color(204, 0, 0)   # vivid magenta stays visible even on bright backgrounds
+DEFAULT_POINT_COLOR = rgba_color(0, 0, 0)     # saturated orange that remains visible on white
+POINT_TEXT_COLOR = rgba_color(255, 255, 255)     # white digits for maximum readability on dark fills
 KV_FILE = "main.kv"
+
+
 
 if platform in ("win", "linux", "macosx"):
     Window.size = (600, 1000)  # будь-який тестовий розмір
@@ -46,7 +55,7 @@ class PointBoard(Widget):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        with self.canvas.before:
+        with self.canvas.before: # type: ignore
             self._bg_color = Color(1, 1, 1, 1)
             self._background = Rectangle(source=self._resolve_image_path(), pos=self.pos, size=self.size)
 
@@ -56,14 +65,14 @@ class PointBoard(Widget):
         self._draw_area = (self.x, self.y, self.width, self.height)
         self._load_image_meta()
 
-        self.bind(
+        self.bind( # type: ignore
             pos=self._update_background,
             size=self._update_background,
             image_source=self._update_background,
         )
-        self.bind(points=self._refresh_points, selected_point_id=self._refresh_points)
-        self.bind(controller=self._on_controller_changed)
-        self.bind(image_source=lambda *_: self._load_image_meta())
+        self.bind(points=self._refresh_points, selected_point_id=self._refresh_points) # type: ignore
+        self.bind(controller=self._on_controller_changed) # type: ignore
+        self.bind(image_source=lambda *_: self._load_image_meta()) # type: ignore
         self._update_background()
 
     def _on_controller_changed(self, *_):
@@ -99,7 +108,7 @@ class PointBoard(Widget):
             return
         try:
             texture = CoreImage(path).texture
-            width, height = texture.size
+            width, height = texture.size # type: ignore
             if width > 0 and height > 0:
                 self._image_ratio = width / float(height)
         except Exception:
@@ -137,7 +146,7 @@ class PointBoard(Widget):
         if self._point_instructions:
             for instr in self._point_instructions:
                 try:
-                    self.canvas.after.remove(instr)
+                    self.canvas.after.remove(instr) # type: ignore
                 except ValueError:
                     continue
             self._point_instructions.clear()
@@ -161,19 +170,26 @@ class PointBoard(Widget):
             px, py = self._mm_to_widget_position(point["x"], point["y"])
             radius_px = self._mm_to_pixels(point.get("radius_mm", POINT_RADIUS_MM))
             is_selected = point.get("id") == self.selected_point_id
-            circle_color = (0.85, 0.15, 0.2, 0.95) if is_selected else (0, 0, 0, 0.85)
-            text_color = (0, 0, 0, 1) if is_selected else (1, 1, 1, 1)
+            circle_color = SELECTED_POINT_COLOR if is_selected else DEFAULT_POINT_COLOR
+            text_color = POINT_TEXT_COLOR
 
             color_instr = Color(*circle_color)
             ellipse_instr = Ellipse(pos=(px - radius_px, py - radius_px), size=(radius_px * 2, radius_px * 2))
 
-            self.canvas.after.add(color_instr)
-            self.canvas.after.add(ellipse_instr)
+            self.canvas.after.add(color_instr) # type: ignore
+            self.canvas.after.add(ellipse_instr) # type: ignore
             self._point_instructions.extend([color_instr, ellipse_instr])
 
             label_text = str(point.get("id", ""))
             if label_text:
-                label = CoreLabel(text=label_text, font_size=POINT_LABEL_FONT_SIZE, color=text_color)
+                label = CoreLabel(
+                    text=label_text,
+                    font_size=POINT_LABEL_FONT_SIZE,
+                    bold=True,
+                    color=text_color,
+                    outline_color=text_color,
+                    outline_width=POINT_LABEL_OUTLINE_WIDTH,
+                )
                 label.refresh()
                 texture = label.texture
                 if texture:
@@ -183,8 +199,8 @@ class PointBoard(Widget):
                         size=texture.size,
                         pos=(px - texture.size[0] / 2, py - texture.size[1] / 2),
                     )
-                    self.canvas.after.add(label_instr_color)
-                    self.canvas.after.add(label_instr)
+                    self.canvas.after.add(label_instr_color) # type: ignore # type: ignore
+                    self.canvas.after.add(label_instr) # type: ignore
                     self._point_instructions.extend([label_instr_color, label_instr])
 
     def _mm_to_widget_position(self, x_mm: float, y_mm: float) -> tuple[float, float]:
