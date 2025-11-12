@@ -2,7 +2,7 @@
 
 <HistoryButton>:
     size_hint_y: None
-    height: dp(48)
+    height: max(dp(48), self.texture_size[1] + dp(12))
     background_normal: ''
     background_color: (0.85, 0.2, 0.25, 1) if self.selected else (0.2, 0.2, 0.2, 1)
     color: 1, 1, 1, 1
@@ -42,33 +42,83 @@
             display_all: False
             controller: root.controller
 
-        GridLayout:
-            cols: 2
-            spacing: dp(12)
+        BoxLayout:
             size_hint_y: None
-            height: dp(72)
+            height: dp(56)
+            spacing: dp(12)
 
             Label:
-                text: 'X: {} мм'.format('{:.1f}'.format(root.controller.latest_point['x']) if root.controller and root.controller.latest_point else '—')
+                text: root.controller.caliber_display_text if root.controller else '—'
                 font_size: '18sp'
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.width, None
+                size_hint_x: None
+                width: dp(60)
+                size_hint_y: None
+                height: self.texture_size[1] + dp(8)
 
             Label:
-                text: 'Y: {} мм'.format('{:.1f}'.format(root.controller.latest_point['y']) if root.controller and root.controller.latest_point else '—')
+                text: root.controller.calibration_text if root.controller else '—'
                 font_size: '18sp'
+                bold: True
+                halign: 'center'
+                valign: 'middle'
+                text_size: self.width, None
+                size_hint_y: None
+                height: self.texture_size[1] + dp(8)
+
+            Label:
+                text: root.controller.calibration_distance_text if root.controller else '25 м'
+                font_size: '18sp'
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.width, None
+                size_hint_x: None
+                width: dp(60)
+                size_hint_y: None
+                height: self.texture_size[1] + dp(8)
 
         BoxLayout:
             size_hint_y: None
             height: dp(48)
-            Button:
+            PrimaryButton:
                 text: 'Згенерувати координати'
                 on_release: root.controller.generate_point() if root.controller else None
 
-        Label:
-            text: 'Натисніть "Історія", щоб переглянути всі точки.'
-            font_size: '14sp'
-            color: 0.4, 0.4, 0.4, 1
+        BoxLayout:
             size_hint_y: None
-            height: self.texture_size[1] + dp(6)
+            height: dp(48)
+            spacing: dp(8)
+
+            # Відстань
+            LockableSpinner:
+                text: root.controller.selected_distance_label if root.controller else '25 м'
+                values: root.controller.distance_labels if root.controller else []
+                size_hint_x: None
+                width: dp(110)
+                background_normal: ''
+                background_color: (0.1, 0.45, 0.95, 1) if root.controller and not root.controller.controls_locked else (0.3, 0.3, 0.3, 1)
+                locked: root.controller.controls_locked if root.controller else False
+                disabled: root.controller.controls_locked if root.controller else False
+                on_text: root.controller.handle_distance_selection(self.text) if root.controller else None
+
+            # Калібр
+            LockableSpinner:
+                text: root.controller.selected_caliber if root.controller else '—'
+                values: root.controller.caliber_options if root.controller else []
+                background_normal: ''
+                background_color: (0.1, 0.45, 0.95, 1) if root.controller and not root.controller.controls_locked else (0.3, 0.3, 0.3, 1)
+                locked: root.controller.controls_locked if root.controller else False
+                disabled: root.controller.controls_locked if root.controller else False
+                on_text: root.controller.set_caliber(self.text) if root.controller else None
+
+
+            PrimaryButton:
+                text: 'Завершити'
+                size_hint_x: None
+                width: dp(120)
+                on_release: root.controller.finish_session() if root.controller else None
 
 <HistoryScreen>:
     BoxLayout:
@@ -91,7 +141,7 @@
             show_until_selection: True
 
         Label:
-            text: 'Історія координат'
+            text: 'Історія поправок'
             font_size: '16sp'
             size_hint_y: None
             height: self.texture_size[1] + dp(4)
@@ -132,8 +182,12 @@ RootWidget:
 
         Button:
             text: 'Головна'
+            background_normal: ''
+            background_color: (0.1, 0.45, 0.95, 1) if root.ids.screen_manager.current == 'main' else (0.3, 0.3, 0.3, 1)
             on_release: root.switch_to('main')
 
         Button:
             text: 'Історія'
+            background_normal: ''
+            background_color: (0.1, 0.45, 0.95, 1) if root.ids.screen_manager.current == 'history' else (0.3, 0.3, 0.3, 1)
             on_release: root.switch_to('history')
