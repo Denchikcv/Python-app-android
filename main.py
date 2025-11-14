@@ -1,6 +1,8 @@
 import math
 import os
-import random
+import random  # лишаю, якщо захочеш дебажити локальну генерацію
+import json
+import time
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -9,6 +11,7 @@ from kivy.core.image import Image as CoreImage
 from kivy.core.text import Label as CoreLabel
 from kivy.core.window import Window
 from kivy.metrics import dp
+from kivy.network.urlrequest import UrlRequest
 from kivy.properties import (
     BooleanProperty,
     ListProperty,
@@ -26,20 +29,32 @@ from kivy.uix.widget import Widget
 from kivy.graphics import Color, Ellipse, Rectangle
 from kivy.utils import platform
 
+
 def rgba_color(r: float, g: float, b: float, a: float = 1.0) -> tuple[float, float, float, float]:
-    """Convert 0-255 rgba values into the 0-1 range Kivy expects."""
+    """Перевод RGBA 0–255 у формат 0–1 для Kivy."""
     return (r / 255.0, g / 255.0, b / 255.0, a)
+
 
 A4_WIDTH_MM = 210.0
 A4_HEIGHT_MM = 297.0
+
 POINT_LABEL_FONT_SIZE = dp(10)
 POINT_LABEL_OUTLINE_WIDTH = dp(0.5)
-SELECTED_POINT_COLOR = rgba_color(204, 0, 0)   # vivid magenta stays visible even on bright backgrounds
-DEFAULT_POINT_COLOR = rgba_color(0, 0, 0)     # saturated orange that remains visible on white
-POINT_TEXT_COLOR = rgba_color(255, 255, 255)     # white digits for maximum readability on dark fills
+
+SELECTED_POINT_COLOR = rgba_color(204, 0, 0)
+DEFAULT_POINT_COLOR = rgba_color(0, 0, 0)
+POINT_TEXT_COLOR = rgba_color(255, 255, 255)
+
 MM_IN_METER = 1000.0
 MOA_IN_RADIANS = math.radians(1 / 60.0)
 MOA_MIN_STEP = 0.25
+
+# ==== НАЛАШТУВАННЯ СЕРВЕРА ====
+# IP/порт твого FastAPI (ПК). ВАЖЛИВО: без "/" в кінці!
+SERVER_URL = "http://127.0.0.1:8000"
+# інтервал опитування (300 мс)
+POLL_INTERVAL_S = 0.3
+
 TRAINING_CALIBERS = [
     ".22 LR",
     ".223 Rem",
@@ -68,14 +83,14 @@ TRAINING_CALIBERS = [
 ]
 
 CALIBER_RADIUS_MM = {
-    ".22 LR": 4,  #2.80
-    ".223 Rem": 4,  #2.85
-    "5.45x39": 4,  #2.80
-    "5.56x45 NATO": 4,  #2.85
+    ".22 LR": 4,
+    ".223 Rem": 4,
+    "5.45x39": 4,
+    "5.56x45 NATO": 4,
     "7.62x39": 3.96,
-    "5.8x42": 4, #3.00
-    "6.5 Grendel": 4, #3.35
-    "6.8 SPC": 4, #3.50
+    "5.8x42": 4,
+    "6.5 Grendel": 4,
+    "6.8 SPC": 4,
     "7.92x33 Kurz": 4.11,
     ".300 AAC Blackout": 3.90,
     "7.62x40 WT": 3.91,
@@ -83,9 +98,9 @@ CALIBER_RADIUS_MM = {
     ".308 Win": 3.91,
     "7.62x54R": 3.96,
     ".30-06 Sprg": 3.91,
-    "6.5 Creedmoor": 4, # 3.35
-    "6.5x55 Swedish": 4, # 3.35
-    ".260 Rem": 4, # 3.35
+    "6.5 Creedmoor": 4,
+    "6.5x55 Swedish": 4,
+    ".260 Rem": 4,
     ".300 Win-Norma Mag": 3.92,
     ".338 Lapua Mag": 4.30,
     ".338 Norma Mag": 4.30,
@@ -96,13 +111,12 @@ CALIBER_RADIUS_MM = {
 
 KV_FILE = "main.kv"
 
-
-
 if platform in ("win", "linux", "macosx"):
-    Window.size = (1080, 2400)  # будь-який тестовий розмір
+    Window.size = (400, 900)
+
 
 class PointBoard(Widget):
-    """Widget that renders the background image and overlays generated points."""
+    """Фон мішені + кружечки пострілів."""
 
     image_source = StringProperty("Image.jpg")
     points = ListProperty([])
@@ -113,25 +127,31 @@ class PointBoard(Widget):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        with self.canvas.before: # type: ignore
+        with self.canvas.before:
             self._bg_color = Color(1, 1, 1, 1)
-            self._background = Rectangle(source=self._resolve_image_path(), pos=self.pos, size=self.size)
+            self._background = Rectangle(
+                source=self._resolve_image_path(),
+                pos=self.pos,
+                size=self.size,
+            )
 
-        self._point_instructions = []
+        self._point_instructions: list = []
         self._bound_controller = None
         self._image_ratio = 1.0
         self._draw_area = (self.x, self.y, self.width, self.height)
         self._load_image_meta()
 
-        self.bind( # type: ignore
+        self.bind(
             pos=self._update_background,
             size=self._update_background,
             image_source=self._update_background,
         )
-        self.bind(points=self._refresh_points, selected_point_id=self._refresh_points) # type: ignore
-        self.bind(controller=self._on_controller_changed) # type: ignore
-        self.bind(image_source=lambda *_: self._load_image_meta()) # type: ignore
+        self.bind(points=self._refresh_points, selected_point_id=self._refresh_points)
+        self.bind(controller=self._on_controller_changed)
+        self.bind(image_source=lambda *_: self._load_image_meta())
         self._update_background()
+
+    # ---- звʼязок з контролером ----
 
     def _on_controller_changed(self, *_):
         if self._bound_controller:
@@ -146,13 +166,18 @@ class PointBoard(Widget):
                 selected_point_id=self._on_controller_selection,
             )
             self._on_controller_points(self.controller, self.controller.points)
-            self._on_controller_selection(self.controller, self.controller.selected_point_id)
+            self._on_controller_selection(
+                self.controller,
+                self.controller.selected_point_id,
+            )
 
     def _on_controller_points(self, _instance, value):
         self.points = value or []
 
     def _on_controller_selection(self, _instance, value):
         self.selected_point_id = value
+
+    # ---- фон ----
 
     def _resolve_image_path(self) -> str:
         if os.path.exists(self.image_source):
@@ -166,13 +191,13 @@ class PointBoard(Widget):
             return
         try:
             texture = CoreImage(path).texture
-            width, height = texture.size # type: ignore
+            width, height = texture.size
             if width > 0 and height > 0:
                 self._image_ratio = width / float(height)
         except Exception:
             self._image_ratio = 1.0
 
-    def _update_background(self, *args) -> None:
+    def _update_background(self, *_args) -> None:
         self._background.source = self._resolve_image_path()
         draw_x, draw_y, draw_w, draw_h = self._calculate_draw_area()
         self._draw_area = (draw_x, draw_y, draw_w, draw_h)
@@ -200,20 +225,28 @@ class PointBoard(Widget):
         draw_y = self.y + (height - draw_height) / 2.0
         return draw_x, draw_y, draw_width, draw_height
 
-    def _refresh_points(self, *args) -> None:
+    # ---- малювання точок ----
+
+    def _refresh_points(self, *_args) -> None:
+        # прибираємо старі інструкції
         if self._point_instructions:
             for instr in self._point_instructions:
                 try:
-                    self.canvas.after.remove(instr) # type: ignore
+                    self.canvas.after.remove(instr)
                 except ValueError:
-                    continue
+                    pass
             self._point_instructions.clear()
 
         if not self.points or self.width == 0 or self.height == 0:
             return
 
         points_to_draw = self.points if self.display_all else self.points[-1:]
-        if self.show_until_selection and self.selected_point_id != -1 and self.points:
+
+        if (
+            self.show_until_selection
+            and self.selected_point_id != -1
+            and self.points
+        ):
             partial = []
             for item in self.points:
                 partial.append(item)
@@ -233,12 +266,16 @@ class PointBoard(Widget):
             text_color = POINT_TEXT_COLOR
 
             color_instr = Color(*circle_color)
-            ellipse_instr = Ellipse(pos=(px - radius_px, py - radius_px), size=(radius_px * 2, radius_px * 2))
+            ellipse_instr = Ellipse(
+                pos=(px - radius_px, py - radius_px),
+                size=(radius_px * 2, radius_px * 2),
+            )
 
-            self.canvas.after.add(color_instr) # type: ignore
-            self.canvas.after.add(ellipse_instr) # type: ignore
+            self.canvas.after.add(color_instr)
+            self.canvas.after.add(ellipse_instr)
             self._point_instructions.extend([color_instr, ellipse_instr])
 
+            # підпис (номер пострілу)
             label_text = str(point.get("id", ""))
             if label_text:
                 label = CoreLabel(
@@ -256,16 +293,26 @@ class PointBoard(Widget):
                     label_instr = Rectangle(
                         texture=texture,
                         size=texture.size,
-                        pos=(px - texture.size[0] / 2, py - texture.size[1] / 2),
+                        pos=(
+                            px - texture.size[0] / 2,
+                            py - texture.size[1] / 2,
+                        ),
                     )
-                    self.canvas.after.add(label_instr_color) # type: ignore # type: ignore
-                    self.canvas.after.add(label_instr) # type: ignore
-                    self._point_instructions.extend([label_instr_color, label_instr])
+                    self.canvas.after.add(label_instr_color)
+                    self.canvas.after.add(label_instr)
+                    self._point_instructions.extend(
+                        [label_instr_color, label_instr],
+                    )
 
     def _mm_to_widget_position(self, x_mm: float, y_mm: float) -> tuple[float, float]:
         draw_x, draw_y, draw_w, draw_h = self._draw_area
         if draw_w == 0 or draw_h == 0:
-            draw_x, draw_y, draw_w, draw_h = self.x, self.y, self.width, self.height
+            draw_x, draw_y, draw_w, draw_h = (
+                self.x,
+                self.y,
+                self.width,
+                self.height,
+            )
 
         x_ratio = (x_mm + (A4_WIDTH_MM / 2.0)) / A4_WIDTH_MM
         y_ratio = (y_mm + (A4_HEIGHT_MM / 2.0)) / A4_HEIGHT_MM
@@ -276,16 +323,16 @@ class PointBoard(Widget):
 
     def _mm_to_pixels(self, value_mm: float) -> float:
         if value_mm == 0:
-            return 0
+            return 0.0
         draw_w = self._draw_area[2] or self.width
         draw_h = self._draw_area[3] or self.height
-        scale_x = draw_w / A4_WIDTH_MM if A4_WIDTH_MM else 0
-        scale_y = draw_h / A4_HEIGHT_MM if A4_HEIGHT_MM else 0
+        scale_x = draw_w / A4_WIDTH_MM if A4_WIDTH_MM else 0.0
+        scale_y = draw_h / A4_HEIGHT_MM if A4_HEIGHT_MM else 0.0
         return value_mm * min(scale_x, scale_y)
 
 
 class PrimaryButton(Button):
-    """Button that ignores right/middle clicks and scroll-wheel events."""
+    """Кнопка, яка ігнорує праву/середню кнопку миші та скролл."""
 
     def on_touch_down(self, touch):
         if self.collide_point(*touch.pos):
@@ -363,7 +410,11 @@ class HistoryScreen(Screen):
         self._bind_to_controller()
 
     def _bind_to_controller(self):
-        if not hasattr(self, "_history_rv") or not self.controller or getattr(self, "_controller_bound", False):
+        if (
+            not hasattr(self, "_history_rv")
+            or not self.controller
+            or getattr(self, "_controller_bound", False)
+        ):
             return
 
         self.controller.bind(
@@ -384,13 +435,16 @@ class RootWidget(BoxLayout):
     points = ListProperty([])
     latest_point = ObjectProperty(allownone=True)
     selected_point_id = NumericProperty(-1)
+
     distance_options = ListProperty([25, 100, 200, 300])
     distance_labels = ListProperty([])
     selected_distance_m = NumericProperty(25)
     selected_distance_label = StringProperty("")
+
     caliber_options = ListProperty([])
     selected_caliber = StringProperty("")
     controls_locked = BooleanProperty(False)
+
     calibration_text = StringProperty("—")
     calibration_distance_text = StringProperty("25 м")
     caliber_display_text = StringProperty("—")
@@ -399,14 +453,32 @@ class RootWidget(BoxLayout):
         super().__init__(**kwargs)
         self._next_point_id = 1
         self._screen_manager = None
-        self.distance_labels = [self._format_distance(value) for value in self.distance_options]
-        self.selected_distance_label = self._format_distance(self.selected_distance_m)
+
+        self.distance_labels = [
+            self._format_distance(value) for value in self.distance_options
+        ]
+        self.selected_distance_label = self._format_distance(
+            self.selected_distance_m,
+        )
+
         self.caliber_options = TRAINING_CALIBERS
         if self.caliber_options:
             self.selected_caliber = self.caliber_options[0]
         self._update_caliber_display()
+
         self._initialize_lock_state()
         self._refresh_calibration_texts()
+
+        # ---- стан для роботи з сервером ----
+        self._last_server_id = -1
+        self._poll_event = None
+        self._poll_in_progress = False  # захист від паралельних запитів
+        self._reset_started_at = None   # час початку скидання
+
+        # після побудови інтерфейсу тягнемо повний список з сервера
+        Clock.schedule_once(self._load_initial_points_from_server, 0)
+
+    # ---- звʼязок з ScreenManager ----
 
     def on_kv_post(self, base_widget):
         super().on_kv_post(base_widget)
@@ -425,6 +497,8 @@ class RootWidget(BoxLayout):
         if manager and screen_name in manager.screen_names:
             manager.current = screen_name
 
+    # ---- реакція на зміну точок ----
+
     def on_points(self, *_):
         self._update_controls_lock_state()
         self._refresh_calibration_texts()
@@ -432,11 +506,20 @@ class RootWidget(BoxLayout):
     def on_latest_point(self, *_):
         self._refresh_calibration_texts()
 
+    # ---- (старе) локальне генерування — для дебагу ----
+
     def generate_point(self) -> None:
+        """Локальна генерація точки (не використовується в проді)."""
         point = {
             "id": self._next_point_id,
-            "x": round(random.uniform(-A4_WIDTH_MM / 2.0, A4_WIDTH_MM / 2.0), 1),
-            "y": round(random.uniform(-A4_HEIGHT_MM / 2.0, A4_HEIGHT_MM / 2.0), 1),
+            "x": round(
+                random.uniform(-A4_WIDTH_MM / 2.0, A4_WIDTH_MM / 2.0),
+                1,
+            ),
+            "y": round(
+                random.uniform(-A4_HEIGHT_MM / 2.0, A4_HEIGHT_MM / 2.0),
+                1,
+            ),
             "radius_mm": self._current_radius_mm(),
         }
         self._next_point_id += 1
@@ -447,6 +530,8 @@ class RootWidget(BoxLayout):
         self._refresh_calibration_texts()
         self._update_controls_lock_state()
 
+    # ---- вибір точки / історія ----
+
     def select_point(self, point_id: int) -> None:
         for item in self.points:
             if item.get("id") == point_id:
@@ -456,9 +541,12 @@ class RootWidget(BoxLayout):
                 break
 
     def get_history_entries(self) -> list[dict]:
-        entries = []
+        entries: list[dict] = []
         for point in reversed(self.points):
-            adjustment = self._format_adjustment_text(point, self.selected_distance_m)
+            adjustment = self._format_adjustment_text(
+                point,
+                self.selected_distance_m,
+            )
             distance_label = f"{self._format_distance(self.selected_distance_m)}"
             label = (
                 f"#{point['id']:03d}  {adjustment}  {distance_label}  "
@@ -469,9 +557,11 @@ class RootWidget(BoxLayout):
                     "text": label,
                     "point_id": point["id"],
                     "selected": point["id"] == self.selected_point_id,
-                }
+                },
             )
         return entries
+
+    # ---- дистанція / калібр ----
 
     def set_distance(self, distance_m: float) -> None:
         if self.controls_locked:
@@ -483,13 +573,18 @@ class RootWidget(BoxLayout):
         self._refresh_calibration_texts()
 
     def on_selected_distance_m(self, *_):
-        self.selected_distance_label = self._format_distance(self.selected_distance_m)
+        self.selected_distance_label = self._format_distance(
+            self.selected_distance_m,
+        )
         self._refresh_calibration_texts()
 
     def get_calibration_label(self) -> str:
         if not self.latest_point:
             return "—"
-        return self._format_adjustment_text(self.latest_point, self.selected_distance_m)
+        return self._format_adjustment_text(
+            self.latest_point,
+            self.selected_distance_m,
+        )
 
     def get_calibration_distance_label(self) -> str:
         if not self.latest_point:
@@ -500,6 +595,7 @@ class RootWidget(BoxLayout):
         if not self.latest_point:
             axis_name = axis.upper() if axis else "X"
             return f"{axis_name}: —"
+
         if axis.lower() == "x":
             direction, value = self._format_axis_adjustment(
                 self.latest_point.get("x", 0.0),
@@ -508,6 +604,7 @@ class RootWidget(BoxLayout):
                 "L",
             )
             return f"X: {direction} {value}"
+
         if axis.lower() == "y":
             direction, value = self._format_axis_adjustment(
                 self.latest_point.get("y", 0.0),
@@ -516,6 +613,7 @@ class RootWidget(BoxLayout):
                 "D",
             )
             return f"Y: {direction} {value}"
+
         return ""
 
     def handle_distance_selection(self, display_label: str) -> None:
@@ -533,13 +631,185 @@ class RootWidget(BoxLayout):
             self.selected_caliber = caliber
             self._update_caliber_display()
 
+    # ---- завершення сесії ----
+
     def finish_session(self) -> None:
+        """Кнопка 'Завершити' — заміряємо затримку до відповіді сервера."""
+        self._reset_started_at = time.perf_counter()
+        self._clear_server_points()
+
+    # ---------- РОБОТА З СЕРВЕРОМ ----------
+
+    def _load_initial_points_from_server(self, *_):
+        """Разове завантаження повного списку координат з сервера."""
+        url = f"{SERVER_URL}/coords/all"
+
+        def ok(_req, result):
+            if isinstance(result, dict):
+                coords = result.get("coords") or []
+            elif isinstance(result, list):
+                coords = result
+            else:
+                coords = []
+
+            points: list[dict] = []
+            last_id = -1
+
+            for item in coords:
+                try:
+                    pid = int(item.get("id", 0))
+                except Exception:
+                    pid = 0
+                try:
+                    x = float(item.get("x", 0.0))
+                    y = float(item.get("y", 0.0))
+                except Exception:
+                    x, y = 0.0, 0.0
+
+                points.append(
+                    {
+                        "id": pid,
+                        "x": x,
+                        "y": y,
+                        "radius_mm": self._current_radius_mm(),
+                    },
+                )
+                if pid > last_id:
+                    last_id = pid
+
+            self.points = points
+            if points:
+                self.latest_point = points[-1]
+                self.selected_point_id = points[-1]["id"]
+            else:
+                self.latest_point = None
+                self.selected_point_id = -1
+
+            self._last_server_id = last_id
+            self._initialize_lock_state()
+            self._refresh_calibration_texts()
+
+            # запускаємо періодичне опитування coords/diff
+            if not self._poll_event:
+                self._poll_event = Clock.schedule_interval(
+                    self._poll_server_for_new_points,
+                    POLL_INTERVAL_S,
+                )
+
+        def err(_req, error):
+            print("Помилка отримання всіх координат із сервера:", error)
+            if not self._poll_event:
+                self._poll_event = Clock.schedule_interval(
+                    self._poll_server_for_new_points,
+                    POLL_INTERVAL_S,
+                )
+
+        UrlRequest(url, on_success=ok, on_error=err, on_failure=err)
+
+    def _poll_server_for_new_points(self, _dt):
+        """Кожні POLL_INTERVAL_S секунд питаємо про нові точки."""
+        if self._poll_in_progress:
+            return
+        self._poll_in_progress = True
+
+        url = f"{SERVER_URL}/coords/diff?last_id={self._last_server_id}"
+
+        def ok(_req, result):
+            self._poll_in_progress = False
+
+            if isinstance(result, dict):
+                coords = result.get("coords") or []
+            elif isinstance(result, list):
+                coords = result
+            else:
+                coords = []
+
+            if not coords:
+                return
+
+            new_points: list[dict] = []
+            last_id = self._last_server_id
+
+            for item in coords:
+                try:
+                    pid = int(item.get("id", 0))
+                except Exception:
+                    continue
+                try:
+                    x = float(item.get("x", 0.0))
+                    y = float(item.get("y", 0.0))
+                except Exception:
+                    x, y = 0.0, 0.0
+
+                new_points.append(
+                    {
+                        "id": pid,
+                        "x": x,
+                        "y": y,
+                        "radius_mm": self._current_radius_mm(),
+                    },
+                )
+                if pid > last_id:
+                    last_id = pid
+
+            if not new_points:
+                return
+
+            self.points = self.points + new_points
+            self.latest_point = self.points[-1]
+            self.selected_point_id = self.latest_point["id"]
+            self._last_server_id = last_id
+            self._update_controls_lock_state()
+
+        def err(_req, error):
+            self._poll_in_progress = False
+            print("Помилка опитування coords/diff:", error)
+
+        UrlRequest(url, on_success=ok, on_error=err, on_failure=err)
+
+    def _clear_server_points(self) -> None:
+        """Запит на очищення списку на сервері + вимір затримки скидання."""
+        url = f"{SERVER_URL}/coords/clear"
+
+        def _report_reset_time(prefix: str) -> None:
+            started = getattr(self, "_reset_started_at", None)
+            if started is None:
+                return
+            dt_ms = (time.perf_counter() - started) * 1000.0
+            print(f"{prefix}: скидання завершилось за {dt_ms:.0f} мс")
+            # покажемо час скидання у полі калібрування (для дебагу)
+            self.calibration_text = f"Скидання: {dt_ms:.0f} мс"
+
+        def ok(_req, result):
+            _report_reset_time("OK")
+            print("Сервер очистив список координат:", result)
+            self._local_clear_state()
+
+        def err(_req, error):
+            _report_reset_time("ПОМИЛКА")
+            print("Помилка очистки списку координат на сервері:", error)
+            self._local_clear_state()
+
+        UrlRequest(
+            url,
+            method="POST",
+            req_body=b"",
+            on_success=ok,
+            on_error=err,
+            on_failure=err,
+        )
+
+    def _local_clear_state(self) -> None:
+        """Локально прибираємо всі точки."""
         self.points = []
         self.latest_point = None
         self.selected_point_id = -1
         self._next_point_id = 1
         self.controls_locked = False
+        self._last_server_id = -1
         self._refresh_calibration_texts()
+
+    # ---- математика / форматування ----
 
     def _format_distance(self, distance_m: float) -> str:
         value = float(distance_m)
@@ -599,10 +869,14 @@ class RootWidget(BoxLayout):
         distance_label = f"{self._format_distance(self.selected_distance_m)}"
         self.calibration_distance_text = distance_label
         if not self.latest_point:
-            self.calibration_text = "—"
+            # якщо не в режимі "показати час скидання" — повертаємось до дефолту
+            if not self.calibration_text.startswith("Скидання:"):
+                self.calibration_text = "—"
             return
-
-        self.calibration_text = self._format_adjustment_text(self.latest_point, self.selected_distance_m)
+        self.calibration_text = self._format_adjustment_text(
+            self.latest_point,
+            self.selected_distance_m,
+        )
 
     def _update_caliber_display(self) -> None:
         self.caliber_display_text = self.selected_caliber or "—"

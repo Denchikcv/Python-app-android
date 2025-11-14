@@ -79,12 +79,6 @@
                 size_hint_y: None
                 height: self.texture_size[1] + dp(8)
 
-        BoxLayout:
-            size_hint_y: None
-            height: dp(48)
-            PrimaryButton:
-                text: 'Згенерувати координати'
-                on_release: root.controller.generate_point() if root.controller else None
 
         BoxLayout:
             size_hint_y: None
@@ -115,7 +109,7 @@
 
 
             PrimaryButton:
-                text: 'Завершити'
+                text: 'Скинути'
                 size_hint_x: None
                 width: dp(120)
                 on_release: root.controller.finish_session() if root.controller else None
