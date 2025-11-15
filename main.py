@@ -51,63 +51,36 @@ MOA_MIN_STEP = 0.25
 
 # ==== НАЛАШТУВАННЯ СЕРВЕРА ====
 # IP/порт твого FastAPI (ПК). ВАЖЛИВО: без "/" в кінці!
-SERVER_URL = "http://127.0.0.1:8000"
+SERVER_URL = "http://192.168.178.100:8000"
 # інтервал опитування (300 мс)
-POLL_INTERVAL_S = 0.3
+POLL_INTERVAL_S = 0.1
 
 TRAINING_CALIBERS = [
     ".22 LR",
     ".223 Rem",
-    "5.45x39",
     "5.56x45 NATO",
     "7.62x39",
-    "5.8x42",
-    "6.5 Grendel",
-    "6.8 SPC",
-    "7.92x33 Kurz",
-    ".300 AAC Blackout",
-    "7.62x40 WT",
-    "9x39",
     ".308 Win",
     "7.62x54R",
     ".30-06 Sprg",
     "6.5 Creedmoor",
-    "6.5x55 Swedish",
-    ".260 Rem",
-    ".300 Win-Norma Mag",
     ".338 Lapua Mag",
-    ".338 Norma Mag",
-    ".375 CheyTac",
-    ".408 CheyTac",
     ".50 BMG",
 ]
 
 CALIBER_RADIUS_MM = {
     ".22 LR": 4,
     ".223 Rem": 4,
-    "5.45x39": 4,
     "5.56x45 NATO": 4,
     "7.62x39": 3.96,
-    "5.8x42": 4,
-    "6.5 Grendel": 4,
-    "6.8 SPC": 4,
-    "7.92x33 Kurz": 4.11,
-    ".300 AAC Blackout": 3.90,
-    "7.62x40 WT": 3.91,
-    "9x39": 4.62,
     ".308 Win": 3.91,
     "7.62x54R": 3.96,
     ".30-06 Sprg": 3.91,
     "6.5 Creedmoor": 4,
-    "6.5x55 Swedish": 4,
-    ".260 Rem": 4,
-    ".300 Win-Norma Mag": 3.92,
     ".338 Lapua Mag": 4.30,
-    ".338 Norma Mag": 4.30,
-    ".375 CheyTac": 4.76,
-    ".408 CheyTac": 5.18,
     ".50 BMG": 6.49,
 }
+
 
 KV_FILE = "main.kv"
 
